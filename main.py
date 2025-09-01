@@ -3,6 +3,7 @@ import pandas as pd
 import joblib
 from pymongo import MongoClient
 import requests
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from typing import Dict, Optional
 from dotenv import load_dotenv
@@ -23,6 +24,16 @@ training_feature_names = [
     "Hour",
     "Month"
 ]
+
+
+def get_value(record, key, default=None, cast=float):
+    value = record.get(key, default)
+    if value is None:
+        return default
+    try:
+        return cast(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def determine_optimal_irrigation_time(temp: float, humidity: float, hour: int, month: int, rainfall: int = 0) -> tuple:
@@ -175,10 +186,19 @@ def get_irrigation_recommendation(soil_shallow: float, soil_deep: float, temp: f
 app = FastAPI(title="Smart Irrigation API 🚀", version="2.0",
               description="Enhanced irrigation system with optimal timing and efficiency analysis")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["irrigation"]
-sensor_collection = db["ai_prediction"]
+sensor_collection = db["sensor"]
+ai_prediction_collection = db["ai_prediction"]
 
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 CITY = "Kolkata,IN"
@@ -224,52 +244,52 @@ def root():
 
 
 @app.post("/predict")
-def predict(data: dict):
+def predict():
     """
-    Enhanced irrigation prediction with timing optimization and efficiency analysis
+    Generate irrigation prediction using the latest sensor data
+    and save results into ai_prediction collection.
     """
-    # Get current time if not provided
     now = datetime.now()
-    current_hour = data.get("Hour", now.hour)
-    current_month = data.get("Month", now.month)
+
+    # Fetch latest sensor record
+    last_record = sensor_collection.find_one(sort=[("_id", -1)])
+
+    print("Last record:", last_record)
+
+    if not last_record:
+        return {"error": "No sensor data available"}
+
+    # Extract sensor data
+    soil_shallow = last_record.get("Soil_Moisture_Shallow")
+    soil_deep = last_record.get("Soil_Moisture_Deep")
+    temp = last_record.get("Atmospheric_Temp")
+    humidity = last_record.get("Humidity")
+    rainfall = last_record.get("Rainfall")
+    hour = last_record.get("Hour")
+    month = last_record.get("Month")
 
     # Fetch weather data
-    weather = get_weather_data()
+    weather_data = get_weather_data()
 
-    # Fill missing input values with weather data
-    temp = data.get("Atmospheric_Temp") or weather["Atmospheric_Temp"] or 30.0
-    humidity = data.get("Humidity") or weather["Humidity"] or 50.0
-    rainfall = data.get("Rainfall", weather["Rainfall"])
+    rainfall = weather_data.get("Rainfall_mm")
+    print("Rainfall:", rainfall)
 
-    # Update data dictionary
-    data.update({
-        "Atmospheric_Temp": temp,
-        "Humidity": humidity,
-        "Rainfall": rainfall,
-        "Hour": current_hour,
-        "Month": current_month
-    })
+    # Extract time data
+    hour = now.hour
+    month = now.month
 
-    # Get comprehensive irrigation recommendation
+    # Generate recommendation
     recommendation = get_irrigation_recommendation(
-        data.get("Soil_Moisture_Shallow", 0),
-        data.get("Soil_Moisture_Deep", 0),
-        temp,
-        humidity,
-        rainfall,
-        current_hour,
-        current_month
+        soil_shallow, soil_deep, temp, humidity, rainfall, hour, month
     )
 
-    # Prepare response
+    # Build response
     response = {
         "prediction": recommendation["decision"],
         "action_code": recommendation["action"],
         "confidence": recommendation["confidence"],
         "irrigation_needed": recommendation["irrigation_needed"],
         "recommended_amount_liters": recommendation["amount_liters_per_m2"] if recommendation["amount_liters_per_m2"] > 0 else "Not required",
-
-        # Enhanced timing information
         "timing": {
             "current_time_rating": recommendation["efficiency_rating"],
             "current_efficiency": f"{recommendation['current_efficiency']:.1%}",
@@ -277,8 +297,6 @@ def predict(data: dict):
             "reasoning": recommendation["reasoning"],
             "optimal_hour": f"{recommendation['optimal_hour']:02d}:00" if recommendation["optimal_hour"] else "N/A"
         },
-
-        # Environmental analysis
         "environmental_analysis": {
             "evapotranspiration_risk": recommendation["evapotranspiration_risk"],
             "risk_level": "Low" if recommendation["evapotranspiration_risk"] < 2 else "Moderate" if recommendation["evapotranspiration_risk"] < 4 else "High",
@@ -286,20 +304,24 @@ def predict(data: dict):
             "humidity": f"{humidity}%",
             "rainfall_expected": bool(rainfall)
         },
-
-        # Input data
-        "input_data": data,
-        "weather_data": weather,
+        "input_data": {
+            "Soil_Moisture_Shallow": soil_shallow,
+            "Soil_Moisture_Deep": soil_deep,
+            "Atmospheric_Temp": temp,
+            "Humidity": humidity,
+            "Rainfall": rainfall,
+            "Hour": hour,
+            "Month": month
+        },
         "timestamp": now.isoformat()
     }
 
-    # Save enhanced prediction to MongoDB
-    sensor_collection.insert_one({
+    # Save to ai_prediction collection
+    ai_prediction_collection.insert_one({
         "timestamp": now,
         "prediction_v2": recommendation,
         "response": response,
-        "input_data": data,
-        "weather_used": weather
+        "input_data": response["input_data"]
     })
 
     return response
