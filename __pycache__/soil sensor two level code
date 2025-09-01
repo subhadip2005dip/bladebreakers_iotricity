@@ -1,0 +1,96 @@
+int shallowMoistureValue;
+int deepMoistureValue;
+float shallow_moisture_percentage;
+float deep_moisture_percentage;
+const int relayPin = 2;
+const int ledPin = 3;
+
+// Moisture threshold settings
+const float MOISTURE_THRESHOLD_LOW = 30.0;  // Percentage below which to turn on watering
+const float MOISTURE_THRESHOLD_HIGH = 60.0; // Percentage above which to turn off watering
+
+// Sensor calibration values (you may need to adjust these based on your sensors)
+const int SHALLOW_DRY_VALUE = 539;  // Value when shallow sensor is dry
+const int SHALLOW_WET_VALUE = 200;  // Value when shallow sensor is wet
+const int DEEP_DRY_VALUE = 550;     // Value when deep sensor is dry
+const int DEEP_WET_VALUE = 210;     // Value when deep sensor is wet
+
+// Sensor pins
+const int shallowSensorPin = A0;
+const int deepSensorPin = A1;
+
+void setup() { 
+  Serial.begin(9600); 
+  pinMode(relayPin, OUTPUT);
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(relayPin, HIGH); // Start with relay off (assuming active LOW relay)
+  digitalWrite(ledPin, LOW);    // Start with LED off
+  
+  Serial.println("Dual Moisture Sensor with Relay and LED Control Initialized");
+  Serial.print("Watering will start below ");
+  Serial.print(MOISTURE_THRESHOLD_LOW);
+  Serial.print("% and stop above ");
+  Serial.print(MOISTURE_THRESHOLD_HIGH);
+  Serial.println("%");
+  Serial.println("----------------------------------------");
+} 
+
+void loop() { 
+  // Read both sensors
+  shallowMoistureValue = analogRead(shallowSensorPin); 
+  deepMoistureValue = analogRead(deepSensorPin);
+  
+  // Convert to percentages (inverted because higher value = drier soil)
+  shallow_moisture_percentage = mapToPercentage(shallowMoistureValue, SHALLOW_DRY_VALUE, SHALLOW_WET_VALUE);
+  deep_moisture_percentage = mapToPercentage(deepMoistureValue, DEEP_DRY_VALUE, DEEP_WET_VALUE);
+  
+  // Display readings
+  Serial.print("Shallow Moisture: ");
+  Serial.print(100-shallow_moisture_percentage);
+  Serial.print("%");
+  
+  Serial.print(" | Deep Moisture: ");
+  Serial.print(100-deep_moisture_percentage);
+  Serial.print("%");
+  
+  // Decision making logic
+  bool shouldWater = determineWateringNeeds(shallow_moisture_percentage, deep_moisture_percentage);
+  
+  // Control relay and LED based on decision
+  if (shouldWater) {
+    digitalWrite(relayPin, LOW);  // Turn on watering system (assuming active LOW relay)
+    digitalWrite(ledPin, HIGH);   // Turn on LED indicator
+    Serial.print(" | Relay: OFF | LED: OFF");
+  } else {
+    digitalWrite(relayPin, HIGH); // Turn off watering system
+    digitalWrite(ledPin, LOW);    // Turn off LED indicator
+    Serial.print(" | Relay: ON (Watering) | LED: ON");
+  }
+  
+  Serial.println();
+  delay(1000); 
+}
+
+// Function to map sensor value to percentage
+float mapToPercentage(int value, int dryValue, int wetValue) {
+  // Constrain the value to the calibration range
+  value = constrain(value, wetValue, dryValue);
+  // Map the value to percentage (inverted because higher value = drier)
+  return map(value, dryValue, wetValue, 0, 100);
+}
+
+// Function to determine if watering is needed
+bool determineWateringNeeds(float shallow, float deep) {
+  // Water if either sensor is below threshold, but prioritize deep sensor
+  if (deep < MOISTURE_THRESHOLD_LOW) {
+    return true; // Deep soil is dry - need water
+  } else if (shallow < MOISTURE_THRESHOLD_LOW && deep > MOISTURE_THRESHOLD_HIGH) {
+    return true; // Shallow soil is dry but deep soil isn't saturated - need water
+  } else if (shallow > MOISTURE_THRESHOLD_HIGH && deep < MOISTURE_THRESHOLD_LOW) {
+    return false; // Shallow soil is wet but deep soil is dry - stop watering
+  } else if (deep > MOISTURE_THRESHOLD_HIGH) {
+    return false; // Deep soil is saturated - stop watering
+  } else {
+    return false; // Default to no watering
+  }
+}
