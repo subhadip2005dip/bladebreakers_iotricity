@@ -1,0 +1,38 @@
+>>-Description:-
+
+This project is a Smart Irrigation System that uses a Soil Moisture Sensor and a Humidity Sensor (DHT22/DHT11) to monitor environmental conditions.
+It integrates Machine Learning (ML) to predict irrigation needs and provides a dashboard to visualize real-time and historical data.
+
+The system helps optimize water usage in agriculture by:
+
+1.Monitoring soil moisture and humidity in real-time.
+
+2.Automatically controlling a water pump using threshold values & ML predictions.
+
+3.Displaying sensor data and irrigation status on a dashboard.
+
+4.Using ML models to forecast soil moisture trends for better decision-making.
+
+
+>>- Hardware Requirements:-
+
+Arduino UNO / ESP32 / ESP8266
+Soil Moisture Sensor
+DHT22 / DHT11 (Temperature & Humidity sensor)
+Relay Module (for pump control)
+Water Pump
+Power Supply (9V/12V or USB)
+Jumper Wires & Breadboard.
+
+
+>>- Software Requirement:-
+
+Arduino IDE / PlatformIO
+Python (for ML & Dashboard)
+
+Libraries:
+Arduino: DHT.h, Wire.h
+Python: pandas, numpy, matplotlib, scikit-learn, flask/streamlit.
+
+
+
